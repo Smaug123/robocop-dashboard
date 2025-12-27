@@ -223,7 +223,11 @@ describe('parseGitHubPrUrl', () => {
         expect(parseGitHubPrUrl('')).toBeNull();
     });
 
-    test('returns null for HTTP (non-HTTPS) URLs', () => {
-        expect(parseGitHubPrUrl('http://github.com/owner/repo/pull/123')).toBeNull();
+    test('normalizes HTTP to HTTPS and parses', () => {
+        expect(parseGitHubPrUrl('http://github.com/owner/repo/pull/123')).toEqual({
+            owner: 'owner',
+            repo: 'repo',
+            number: 123
+        });
     });
 });
