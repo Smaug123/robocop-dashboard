@@ -55,6 +55,17 @@ export function renderMarkdown(text) {
     });
 }
 
+/**
+ * Render a PR status badge.
+ * @param {string|undefined} prStatus - 'open', 'closed', 'merged', or undefined
+ * @returns {string} HTML for the badge, or empty string if no status
+ */
+function renderPrStatusBadge(prStatus) {
+    if (!prStatus) return '';
+    const label = prStatus.toUpperCase();
+    return `<span class="pr-badge pr-badge-${escapeHtml(prStatus)}">${escapeHtml(label)}</span>`;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // SUMMARY RENDERING
 // ═══════════════════════════════════════════════════════════════════════════
@@ -109,6 +120,7 @@ export function renderInProgress(batches) {
         const time = getRelativeTime(batch.created_at, now);
         const utcTime = formatUtcTime(batch.created_at);
         const prUrl = getPrUrl(batch);
+        const prBadge = renderPrStatusBadge(batch.prStatus);
 
         const branchContent = prUrl
             ? `<a href="${escapeHtml(prUrl)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">${branch}</a>`
@@ -117,7 +129,7 @@ export function renderInProgress(batches) {
         return `
             <div class="progress-card" data-batch-id="${escapeHtml(batch.id)}">
                 <div class="progress-info">
-                    <div class="progress-branch">${branchContent}</div>
+                    <div class="progress-branch">${branchContent}${prBadge}</div>
                     <div class="progress-meta-line">
                         ${repo ? `<span class="progress-repo">${repo}</span>` : ''}
                         <span class="progress-status">${status}</span>
@@ -186,6 +198,7 @@ export function renderRecent(batches, displayCancelled) {
         const time = finishTime !== null ? getRelativeTime(finishTime, now) : '';
         const utcTime = finishTime !== null ? formatUtcTime(finishTime) : '';
         const prUrl = getPrUrl(batch);
+        const prBadge = renderPrStatusBadge(batch.prStatus);
 
         let outcomeClass = 'clean';
         let outcomeIcon = '✓';
@@ -209,7 +222,7 @@ export function renderRecent(batches, displayCancelled) {
             <div class="recent-item" data-batch-id="${escapeHtml(batch.id)}">
                 <div class="recent-item-info">
                     <span class="recent-item-outcome ${outcomeClass}">${outcomeIcon}</span>
-                    <span class="recent-item-branch">${branchContent}</span>
+                    <span class="recent-item-branch">${branchContent}${prBadge}</span>
                 </div>
                 <span class="recent-item-time" title="${utcTime}">${time}</span>
             </div>
@@ -259,7 +272,7 @@ export function renderDetailPanel(batch) {
             <div class="panel-field">
                 <span class="panel-field-label">Pull Request</span>
                 <span class="panel-field-value">
-                    <a href="${escapeHtml(prUrl)}" target="_blank" rel="noopener noreferrer">View PR</a>
+                    <a href="${escapeHtml(prUrl)}" target="_blank" rel="noopener noreferrer">View PR</a>${renderPrStatusBadge(batch.prStatus)}
                 </span>
             </div>
             ` : ''}
