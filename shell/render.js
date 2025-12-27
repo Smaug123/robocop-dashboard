@@ -156,10 +156,18 @@ export function renderRecent(batches, displayCancelled) {
         return;
     }
 
+    // Sort by completion time (most recent first), falling back to created_at
+    recentBatches.sort((a, b) => {
+        const aTime = a.completed_at ?? a.created_at;
+        const bTime = b.completed_at ?? b.created_at;
+        return bTime - aTime;
+    });
+
     container.innerHTML = recentBatches.map(batch => {
         const branch = escapeHtml(batch.metadata?.branch || 'Unknown');
-        const time = getRelativeTime(batch.created_at, now);
-        const utcTime = formatUtcTime(batch.created_at);
+        const completedAt = batch.completed_at ?? batch.created_at;
+        const time = getRelativeTime(completedAt, now);
+        const utcTime = formatUtcTime(completedAt);
         const prUrl = getPrUrl(batch);
 
         let outcomeClass = 'clean';
