@@ -375,35 +375,51 @@ async function loadBatches() {
         const PR_CACHE_TTL_OPEN = 5 * 60 * 1000; // 5 minutes for open PRs
         const PR_CACHE_TTL_CLOSED = 60 * 60 * 1000; // 1 hour for closed/merged PRs
 
-        const prStatusPromises = annotatedBatches
-            .filter(batch => batch.metadata?.pull_request_url)
-            .map(async batch => {
-                const prUrl = batch.metadata.pull_request_url;
-                const parsed = parseGitHubPrUrl(prUrl);
-                if (!parsed) return;
+        // Group batches by PR cacheKey to avoid duplicate API calls
+        const prToBatches = new Map(); // cacheKey -> { parsed, batches: [] }
+        for (const batch of annotatedBatches) {
+            const prUrl = batch.metadata?.pull_request_url;
+            if (!prUrl) continue;
 
-                const cacheKey = `${parsed.owner}/${parsed.repo}/${parsed.number}`;
-                const cached = cachedPrStatus[cacheKey];
+            const parsed = parseGitHubPrUrl(prUrl);
+            if (!parsed) continue;
 
-                if (cached) {
-                    const ttl = cached.state === 'open' ? PR_CACHE_TTL_OPEN : PR_CACHE_TTL_CLOSED;
-                    if (now - cached.checkedAt < ttl) {
-                        batch.prStatus = cached.merged ? 'merged' : cached.state;
-                        return;
+            const cacheKey = `${parsed.owner}/${parsed.repo}/${parsed.number}`;
+            if (!prToBatches.has(cacheKey)) {
+                prToBatches.set(cacheKey, { parsed, batches: [] });
+            }
+            prToBatches.get(cacheKey).batches.push(batch);
+        }
+
+        // Fetch each unique PR once and apply to all matching batches
+        const prStatusPromises = Array.from(prToBatches.entries()).map(async ([cacheKey, { parsed, batches }]) => {
+            const cached = cachedPrStatus[cacheKey];
+
+            if (cached) {
+                const ttl = cached.state === 'open' ? PR_CACHE_TTL_OPEN : PR_CACHE_TTL_CLOSED;
+                if (now - cached.checkedAt < ttl) {
+                    const prStatus = cached.merged ? 'merged' : cached.state;
+                    for (const batch of batches) {
+                        batch.prStatus = prStatus;
                     }
+                    return;
                 }
+            }
 
-                const status = await fetchPrStatus(parsed.owner, parsed.repo, parsed.number, githubToken);
-                if (status) {
-                    batch.prStatus = status.merged ? 'merged' : status.state;
-                    cachedPrStatus[cacheKey] = {
-                        state: status.state,
-                        merged: status.merged,
-                        checkedAt: now
-                    };
-                    writeCache('robocop_pr_status_cache', cachedPrStatus);
+            const status = await fetchPrStatus(parsed.owner, parsed.repo, parsed.number, githubToken);
+            if (status) {
+                const prStatus = status.merged ? 'merged' : status.state;
+                for (const batch of batches) {
+                    batch.prStatus = prStatus;
                 }
-            });
+                cachedPrStatus[cacheKey] = {
+                    state: status.state,
+                    merged: status.merged,
+                    checkedAt: now
+                };
+                writeCache('robocop_pr_status_cache', cachedPrStatus);
+            }
+        });
 
         await Promise.all(prStatusPromises);
 
