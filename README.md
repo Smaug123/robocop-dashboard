@@ -5,6 +5,11 @@ This is a dashboard for the [Robocop](https://github.com/Smaug123/robocop) ecosy
 The dashboard displays the current state of Robocop.
 Right now, you just get what's visible to OpenAI (who perform the reviews); I intend adding a display for Robocop's own internal state.
 
+## Serving the dashboard
+
+Run `bun serve`, for example.
+(`bun` is in the Nix devshell, but you can use anything you like to do this.)
+
 ## Data schemas and migration
 
 See the `schemas/` folder for the metadata schemas.

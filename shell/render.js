@@ -1,15 +1,51 @@
+/**
+ * Imperative rendering functions - handles all DOM manipulation.
+ */
+
+import { getRelativeTime, isToday, formatUtcTime } from '../src/time.js';
+import { formatCommitHash, getSafeRepoUrl, getPrUrl } from '../src/urls.js';
+import { isInProgress, computeSummary } from '../src/batch.js';
+
 // ═══════════════════════════════════════════════════════════════════════════
-// UTILITY FUNCTIONS
+// UTILITY FUNCTIONS (DOM-dependent)
 // ═══════════════════════════════════════════════════════════════════════════
 
-function escapeHtml(text) {
+/**
+ * Encode a UTF-8 string to base64.
+ * @param {string} str - String to encode
+ * @returns {string} Base64-encoded string
+ */
+function utf8ToBase64(str) {
+    const bytes = new TextEncoder().encode(str);
+    let binary = '';
+    for (const byte of bytes) {
+        binary += String.fromCharCode(byte);
+    }
+    return btoa(binary);
+}
+
+/**
+ * Decode a base64 string to UTF-8.
+ * @param {string} base64 - Base64-encoded string
+ * @returns {string} Decoded UTF-8 string
+ */
+function base64ToUtf8(base64) {
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+    }
+    return new TextDecoder().decode(bytes);
+}
+
+export function escapeHtml(text) {
     if (!text) return '';
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
 }
 
-function renderMarkdown(text) {
+export function renderMarkdown(text) {
     if (!text) return '';
     const html = marked.parse(text);
     return DOMPurify.sanitize(html, {
@@ -19,100 +55,23 @@ function renderMarkdown(text) {
     });
 }
 
-function normalizeId(id) {
-    try {
-        const base64 = btoa(id)
-            .replace(/\+/g, '-')
-            .replace(/\//g, '_')
-            .replace(/=/g, '');
-        return 'id_' + base64;
-    } catch (e) {
-        return 'id_' + id.replace(/[^a-zA-Z0-9\-_]/g, '_');
-    }
-}
-
-function getRelativeTime(timestamp) {
-    const seconds = Math.floor((Date.now() / 1000) - timestamp);
-    if (seconds < 60) return 'just now';
-    if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
-    if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
-    return `${Math.floor(seconds / 86400)}d ago`;
-}
-
-function formatCommitHash(hash) {
-    if (!hash) return 'N/A';
-    return hash.substring(0, 7);
-}
-
-function getSafeRepoUrl(remoteUrl) {
-    if (!remoteUrl) return null;
-
-    if (/^https?:\/\//i.test(remoteUrl)) {
-        return remoteUrl;
-    }
-
-    const sshMatch = remoteUrl.match(/^git@([^:]+):(.+?)(?:\.git)?$/);
-    if (sshMatch) {
-        const [, host, path] = sshMatch;
-        if (host === 'github.com' || host === 'gitlab.com' || host === 'bitbucket.org') {
-            return `https://${host}/${path}`;
-        }
-    }
-
-    const sshProtocolMatch = remoteUrl.match(/^ssh:\/\/(?:git@)?([^\/]+)\/(.+?)(?:\.git)?$/);
-    if (sshProtocolMatch) {
-        const [, host, path] = sshProtocolMatch;
-        if (host === 'github.com' || host === 'gitlab.com' || host === 'bitbucket.org') {
-            return `https://${host}/${path}`;
-        }
-    }
-
-    return null;
-}
-
-function getPrUrl(batch) {
-    // Prefer pull request URL if available
-    if (batch.metadata?.pull_request_url) {
-        return getSafeRepoUrl(batch.metadata.pull_request_url);
-    }
-    // Fall back to repo URL
-    return getSafeRepoUrl(batch.metadata?.remote_url);
-}
-
-function isToday(timestamp) {
-    const date = new Date(timestamp * 1000);
-    const today = new Date();
-    return date.toDateString() === today.toDateString();
-}
-
-function isInProgress(status) {
-    return ['in_progress', 'validating', 'finalizing'].includes(status);
-}
-
 // ═══════════════════════════════════════════════════════════════════════════
 // SUMMARY RENDERING
 // ═══════════════════════════════════════════════════════════════════════════
 
-function renderSummary(batches) {
-    const inFlight = batches.filter(b => isInProgress(b.status)).length;
-    const completedToday = batches.filter(b =>
-        b.status === 'completed' && isToday(b.created_at)
-    ).length;
-    const issuesFound = batches.filter(b =>
-        b.status === 'completed' &&
-        isToday(b.created_at) &&
-        b.reviewData?.substantiveComments
-    ).length;
+export function renderSummary(batches) {
+    const today = new Date();
+    const summary = computeSummary(batches, today);
 
-    document.getElementById('inFlightCount').textContent = inFlight;
-    document.getElementById('completedCount').textContent = completedToday;
-    document.getElementById('issuesCount').textContent = issuesFound;
+    document.getElementById('inFlightCount').textContent = summary.inFlight;
+    document.getElementById('completedCount').textContent = summary.completedToday;
+    document.getElementById('issuesCount').textContent = summary.issuesFound;
 
     // Update system status indicator
     const indicator = document.getElementById('systemStatus');
     const statusText = document.getElementById('systemStatusText');
 
-    if (inFlight > 0) {
+    if (summary.inFlight > 0) {
         indicator.className = 'status-indicator';
         statusText.textContent = 'Processing';
     } else if (batches.length > 0) {
@@ -128,8 +87,9 @@ function renderSummary(batches) {
 // IN-PROGRESS CARDS
 // ═══════════════════════════════════════════════════════════════════════════
 
-function renderInProgress(batches) {
+export function renderInProgress(batches) {
     const container = document.getElementById('inProgressList');
+    const now = Date.now();
     const inProgressBatches = batches.filter(b => isInProgress(b.status));
 
     if (inProgressBatches.length === 0) {
@@ -146,7 +106,8 @@ function renderInProgress(batches) {
         const branch = escapeHtml(batch.metadata?.branch || 'Unknown branch');
         const repo = escapeHtml(batch.metadata?.repo_name || '');
         const status = escapeHtml(batch.status);
-        const time = getRelativeTime(batch.created_at);
+        const time = getRelativeTime(batch.created_at, now);
+        const utcTime = formatUtcTime(batch.created_at);
         const prUrl = getPrUrl(batch);
 
         const branchContent = prUrl
@@ -163,7 +124,7 @@ function renderInProgress(batches) {
                     </div>
                 </div>
                 <div class="progress-meta">
-                    <span class="progress-time">${time}</span>
+                    <span class="progress-time" title="${utcTime}">${time}</span>
                     <div class="progress-indicator"></div>
                 </div>
             </div>
@@ -175,9 +136,9 @@ function renderInProgress(batches) {
 // RECENT LIST
 // ═══════════════════════════════════════════════════════════════════════════
 
-function renderRecent(batches) {
+export function renderRecent(batches, displayCancelled) {
     const container = document.getElementById('recentList');
-    const displayCancelled = getDisplayCancelledJobs();
+    const now = Date.now();
 
     // Filter for completed/cancelled batches (not in-progress)
     let recentBatches = batches.filter(b => !isInProgress(b.status));
@@ -197,7 +158,8 @@ function renderRecent(batches) {
 
     container.innerHTML = recentBatches.map(batch => {
         const branch = escapeHtml(batch.metadata?.branch || 'Unknown');
-        const time = getRelativeTime(batch.created_at);
+        const time = getRelativeTime(batch.created_at, now);
+        const utcTime = formatUtcTime(batch.created_at);
         const prUrl = getPrUrl(batch);
 
         let outcomeClass = 'clean';
@@ -206,7 +168,7 @@ function renderRecent(batches) {
         if (batch.status === 'cancelled') {
             outcomeClass = '';
             outcomeIcon = '−';
-        } else if (batch.status === 'failed' || batch.status === 'expired' || batch.hasErrors) {
+        } else if (batch.status === 'failed' || batch.status === 'expired' || batch.hasErrors || batch.reviewData?.isHttpError) {
             outcomeClass = 'error';
             outcomeIcon = '✗';
         } else if (batch.reviewData?.substantiveComments) {
@@ -224,7 +186,7 @@ function renderRecent(batches) {
                     <span class="recent-item-outcome ${outcomeClass}">${outcomeIcon}</span>
                     <span class="recent-item-branch">${branchContent}</span>
                 </div>
-                <span class="recent-item-time">${time}</span>
+                <span class="recent-item-time" title="${utcTime}">${time}</span>
             </div>
         `;
     }).join('');
@@ -234,7 +196,7 @@ function renderRecent(batches) {
 // DETAIL PANEL
 // ═══════════════════════════════════════════════════════════════════════════
 
-function renderDetailPanel(batch) {
+export function renderDetailPanel(batch) {
     const content = document.getElementById('panelContent');
     const title = document.getElementById('panelTitle');
 
@@ -249,6 +211,7 @@ function renderDetailPanel(batch) {
     const model = escapeHtml(batch.metadata?.model || 'N/A');
     const reasoningEffort = escapeHtml(batch.metadata?.reasoning_effort || 'N/A');
     const createdAt = new Date(batch.created_at * 1000).toLocaleString();
+    const createdAtUtc = formatUtcTime(batch.created_at);
 
     let html = `
         <div class="panel-section">
@@ -259,7 +222,7 @@ function renderDetailPanel(batch) {
             </div>
             <div class="panel-field">
                 <span class="panel-field-label">Created</span>
-                <span class="panel-field-value">${createdAt}</span>
+                <span class="panel-field-value" title="${createdAtUtc}">${createdAt}</span>
             </div>
             <div class="panel-field">
                 <span class="panel-field-label">Repository</span>
@@ -364,7 +327,7 @@ function renderDetailPanel(batch) {
         copyBtn.addEventListener('click', async function() {
             const encoded = this.getAttribute('data-copy');
             try {
-                const text = decodeURIComponent(escape(atob(encoded)));
+                const text = base64ToUtf8(encoded);
                 await navigator.clipboard.writeText(text);
                 const originalText = this.textContent;
                 this.textContent = 'Copied!';
@@ -394,7 +357,7 @@ function renderReviewContent(review) {
     const reasoning = renderMarkdown(rawReasoning);
 
     // Encode raw text for data attribute (to preserve newlines etc)
-    const encodedSummary = btoa(unescape(encodeURIComponent(rawSummary)));
+    const encodedSummary = utf8ToBase64(rawSummary);
 
     return `
         <div class="panel-section">
@@ -475,8 +438,8 @@ function renderBatchErrors(batch) {
 // MAIN RENDER FUNCTION
 // ═══════════════════════════════════════════════════════════════════════════
 
-function renderBatches(batches) {
+export function renderBatches(batches, displayCancelled) {
     renderSummary(batches);
     renderInProgress(batches);
-    renderRecent(batches);
+    renderRecent(batches, displayCancelled);
 }

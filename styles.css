@@ -938,7 +938,8 @@ input[type="checkbox"]:checked::after {
     margin-bottom: 0.5rem;
 }
 
-.modal-field input {
+.modal-field input[type="text"],
+.modal-field input[type="password"] {
     width: 100%;
 }
 

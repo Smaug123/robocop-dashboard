@@ -1,3 +1,13 @@
+/**
+ * Main application - orchestration, state, and event handlers.
+ */
+
+import { parseReviewFromOutput, parseErrorFromOutput } from '../src/parsing.js';
+import { findUnknownSchemaVersions } from '../src/schema.js';
+import { filterByRobocopDescription, filterBySupportedSchemaVersions, annotateBatchErrors } from '../src/batch.js';
+import { fetchBatches, fetchBatchOutput, fetchBatchError } from './api.js';
+import { renderBatches, renderDetailPanel } from './render.js';
+
 // ═══════════════════════════════════════════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════════════════════════════════════════
@@ -67,15 +77,15 @@ window.onload = function() {
 // SETTINGS MODAL
 // ═══════════════════════════════════════════════════════════════════════════
 
-function openSettingsModal() {
+window.openSettingsModal = function() {
     document.getElementById('settingsModal').classList.add('open');
-}
+};
 
-function closeSettingsModal() {
+window.closeSettingsModal = function() {
     document.getElementById('settingsModal').classList.remove('open');
-}
+};
 
-function saveSettings() {
+window.saveSettings = function() {
     const displayCancelled = document.getElementById('displayCancelledJobs').checked;
     localStorage.setItem('display_cancelled_jobs', displayCancelled.toString());
 
@@ -90,7 +100,7 @@ function saveSettings() {
     if (getApiKey()) {
         loadBatches();
     }
-}
+};
 
 function getApiKey() {
     return document.getElementById('apiKey').value.trim() || localStorage.getItem('openai_api_key');
@@ -118,17 +128,17 @@ function openDetailPanel(batchId) {
     document.body.style.overflow = 'hidden';
 }
 
-function closeDetailPanel() {
+window.closeDetailPanel = function() {
     document.getElementById('panelOverlay').classList.remove('open');
     document.getElementById('detailPanel').classList.remove('open');
     document.body.style.overflow = '';
-}
+};
 
 // ═══════════════════════════════════════════════════════════════════════════
 // RECENT SECTION TOGGLE
 // ═══════════════════════════════════════════════════════════════════════════
 
-function toggleRecentSection() {
+window.toggleRecentSection = function() {
     const list = document.getElementById('recentList');
     const toggle = document.getElementById('recentToggle');
 
@@ -143,13 +153,13 @@ function toggleRecentSection() {
         list.classList.add('collapsed');
         toggle.textContent = 'Expand';
     }
-}
+};
 
 // ═══════════════════════════════════════════════════════════════════════════
 // REFRESH CONTROLS
 // ═══════════════════════════════════════════════════════════════════════════
 
-function updateRefreshInterval() {
+window.updateRefreshInterval = function() {
     const interval = parseInt(document.getElementById('refreshInterval').value);
 
     if (refreshTimer) {
@@ -160,7 +170,9 @@ function updateRefreshInterval() {
     if (interval > 0 && !document.hidden) {
         refreshTimer = setInterval(loadBatches, interval * 1000);
     }
-}
+};
+
+window.loadBatches = loadBatches;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // MESSAGES
@@ -178,15 +190,8 @@ function showMessage(message, type = 'error') {
     }, 5000);
 }
 
-function checkSchemaVersions(batches) {
-    const unknownVersions = new Set();
-
-    for (const batch of batches) {
-        const version = batch.metadata?.metadata_schema;
-        if (version && !SUPPORTED_SCHEMA_VERSIONS.includes(version)) {
-            unknownVersions.add(version);
-        }
-    }
+function displaySchemaWarnings(batches) {
+    const unknownVersions = findUnknownSchemaVersions(batches, SUPPORTED_SCHEMA_VERSIONS);
 
     const warningDiv = document.getElementById('schemaWarning');
     const warningText = document.getElementById('schemaWarningText');
@@ -197,6 +202,64 @@ function checkSchemaVersions(batches) {
         warningDiv.classList.add('visible');
     } else {
         warningDiv.classList.remove('visible');
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CACHE HELPERS
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Safely read and parse a JSON cache from localStorage.
+ * Returns empty object if missing, malformed, or on error.
+ * Clears corrupted cache entries.
+ * @param {string} key - localStorage key
+ * @returns {object} Parsed cache or empty object
+ */
+function readCache(key) {
+    try {
+        const raw = localStorage.getItem(key);
+        if (!raw) return {};
+        const parsed = JSON.parse(raw);
+        if (typeof parsed !== 'object' || parsed === null) {
+            console.warn(`Cache ${key} is not an object, resetting`);
+            localStorage.removeItem(key);
+            return {};
+        }
+        return parsed;
+    } catch (e) {
+        console.warn(`Failed to parse cache ${key}, resetting:`, e);
+        try {
+            localStorage.removeItem(key);
+        } catch (_) {
+            // Ignore removal errors
+        }
+        return {};
+    }
+}
+
+/**
+ * Safely write a cache object to localStorage.
+ * On quota errors, attempts to clear the cache and retry once.
+ * Fails silently if storage is unavailable.
+ * @param {string} key - localStorage key
+ * @param {object} data - Data to cache
+ */
+function writeCache(key, data) {
+    try {
+        localStorage.setItem(key, JSON.stringify(data));
+    } catch (e) {
+        if (e.name === 'QuotaExceededError' || e.code === 22) {
+            console.warn(`Storage quota exceeded for ${key}, clearing cache and retrying`);
+            try {
+                localStorage.removeItem(key);
+                localStorage.setItem(key, JSON.stringify(data));
+            } catch (retryError) {
+                console.error(`Failed to write cache ${key} after clearing:`, retryError);
+            }
+        } else {
+            console.error(`Failed to write cache ${key}:`, e);
+        }
     }
 }
 
@@ -223,39 +286,26 @@ async function loadBatches() {
     refreshBtn.disabled = true;
 
     try {
-        const response = await fetch(`${API_BASE}/batches?limit=100`, {
-            headers: {
-                'Authorization': `Bearer ${apiKey}`,
-                'Content-Type': 'application/json'
-            }
-        });
+        const allBatches = await fetchBatches(apiKey);
 
-        if (!response.ok) {
-            throw new Error(`API error: ${response.statusText}`);
-        }
+        // Filter for robocop batches (any schema version)
+        const allRobocopBatches = filterByRobocopDescription(allBatches);
 
-        const data = await response.json();
+        // Check for unknown schema versions before filtering them out
+        displaySchemaWarnings(allRobocopBatches);
 
-        // Filter for robocop batches with schema version 1
-        const roboCopBatches = data.data.filter(batch =>
-            batch.metadata?.description === 'robocop code review tool' &&
-            batch.metadata?.metadata_schema === '1'
-        );
+        // Now filter to only supported schema versions
+        const supportedBatches = filterBySupportedSchemaVersions(allRobocopBatches, SUPPORTED_SCHEMA_VERSIONS);
 
-        // Detect errors in batches
-        roboCopBatches.forEach(batch => {
-            const failedCount = batch.request_counts?.failed || 0;
-            batch.hasErrors = failedCount > 0 || !!batch.error_file_id;
-            batch.failedCount = failedCount;
-            batch.errorFileId = batch.error_file_id;
-        });
+        // Annotate with error information
+        const annotatedBatches = annotateBatchErrors(supportedBatches);
 
         // Cache for completed batch review data
-        const cachedReviews = JSON.parse(localStorage.getItem('robocop_review_cache') || '{}');
-        const cachedErrors = JSON.parse(localStorage.getItem('robocop_error_cache') || '{}');
+        const cachedReviews = readCache('robocop_review_cache');
+        const cachedErrors = readCache('robocop_error_cache');
 
         // Fetch output for completed batches in parallel
-        const outputPromises = roboCopBatches
+        const outputPromises = annotatedBatches
             .filter(batch => batch.status === 'completed' && batch.output_file_id)
             .map(async batch => {
                 if (cachedReviews[batch.id]) {
@@ -264,12 +314,12 @@ async function loadBatches() {
                 }
 
                 try {
-                    const output = await fetchBatchOutput(batch.output_file_id);
+                    const output = await fetchBatchOutput(batch.output_file_id, apiKey);
                     batch.reviewData = parseReviewFromOutput(output);
 
                     if (batch.reviewData) {
                         cachedReviews[batch.id] = batch.reviewData;
-                        localStorage.setItem('robocop_review_cache', JSON.stringify(cachedReviews));
+                        writeCache('robocop_review_cache', cachedReviews);
                     }
                 } catch (e) {
                     console.error(`Failed to fetch output for batch ${batch.id}:`, e);
@@ -277,7 +327,7 @@ async function loadBatches() {
             });
 
         // Fetch error files for batches with errors
-        const errorPromises = roboCopBatches
+        const errorPromises = annotatedBatches
             .filter(batch => batch.hasErrors && batch.errorFileId)
             .map(async batch => {
                 if (cachedErrors[batch.id]) {
@@ -286,12 +336,12 @@ async function loadBatches() {
                 }
 
                 try {
-                    const errorText = await fetchBatchError(batch.errorFileId);
+                    const errorText = await fetchBatchError(batch.errorFileId, apiKey);
                     batch.errorData = parseErrorFromOutput(errorText);
 
                     if (batch.errorData) {
                         cachedErrors[batch.id] = batch.errorData;
-                        localStorage.setItem('robocop_error_cache', JSON.stringify(cachedErrors));
+                        writeCache('robocop_error_cache', cachedErrors);
                     }
                 } catch (e) {
                     console.error(`Failed to fetch error file for batch ${batch.id}:`, e);
@@ -301,10 +351,9 @@ async function loadBatches() {
         await Promise.all([...outputPromises, ...errorPromises]);
 
         // Store batches globally for panel access
-        currentBatches = roboCopBatches;
+        currentBatches = annotatedBatches;
 
-        checkSchemaVersions(roboCopBatches);
-        renderBatches(roboCopBatches);
+        renderBatches(annotatedBatches, getDisplayCancelledJobs());
 
         document.getElementById('lastUpdate').textContent = `Updated ${new Date().toLocaleTimeString()}`;
 
