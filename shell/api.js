@@ -1,8 +1,9 @@
 /**
- * Imperative API functions - handles fetch calls to OpenAI.
+ * Imperative API functions - handles fetch calls to OpenAI and GitHub.
  */
 
 const API_BASE = 'https://api.openai.com/v1';
+const GITHUB_API_BASE = 'https://api.github.com';
 
 /**
  * Fetch batch output file content from OpenAI.
@@ -89,4 +90,40 @@ export async function fetchBatches(apiKey) {
     } while (true);
 
     return allBatches;
+}
+
+/**
+ * Fetch PR status from GitHub API.
+ * @param {string} owner - Repository owner
+ * @param {string} repo - Repository name
+ * @param {number} number - PR number
+ * @param {string|null} token - GitHub personal access token (optional, but recommended for rate limits)
+ * @returns {Promise<{state: 'open'|'closed', merged: boolean}|null>} PR status or null on error
+ */
+export async function fetchPrStatus(owner, repo, number, token) {
+    const headers = {
+        'Accept': 'application/vnd.github.v3+json'
+    };
+    if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    try {
+        const response = await fetch(
+            `${GITHUB_API_BASE}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls/${number}`,
+            { headers }
+        );
+
+        if (!response.ok) {
+            return null;
+        }
+
+        const data = await response.json();
+        return {
+            state: data.state,
+            merged: Boolean(data.merged_at)
+        };
+    } catch {
+        return null;
+    }
 }

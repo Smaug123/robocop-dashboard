@@ -1,5 +1,5 @@
 import { test, expect, describe } from 'bun:test';
-import { formatCommitHash, getSafeRepoUrl, getPrUrl, normalizeId } from '../src/urls.js';
+import { formatCommitHash, getSafeRepoUrl, getPrUrl, normalizeId, parseGitHubPrUrl } from '../src/urls.js';
 
 describe('formatCommitHash', () => {
     test('truncates long hash to 7 characters', () => {
@@ -159,5 +159,75 @@ describe('normalizeId', () => {
 
     test('handles empty string', () => {
         expect(normalizeId('')).toBe('id_');
+    });
+});
+
+describe('parseGitHubPrUrl', () => {
+    test('parses standard GitHub PR URL', () => {
+        expect(parseGitHubPrUrl('https://github.com/owner/repo/pull/123')).toEqual({
+            owner: 'owner',
+            repo: 'repo',
+            number: 123
+        });
+    });
+
+    test('parses PR URL with nested repo path', () => {
+        expect(parseGitHubPrUrl('https://github.com/my-org/my-repo/pull/42')).toEqual({
+            owner: 'my-org',
+            repo: 'my-repo',
+            number: 42
+        });
+    });
+
+    test('parses PR URL with trailing content', () => {
+        expect(parseGitHubPrUrl('https://github.com/owner/repo/pull/123/files')).toEqual({
+            owner: 'owner',
+            repo: 'repo',
+            number: 123
+        });
+    });
+
+    test('handles case-insensitive domain', () => {
+        expect(parseGitHubPrUrl('https://GitHub.COM/owner/repo/pull/1')).toEqual({
+            owner: 'owner',
+            repo: 'repo',
+            number: 1
+        });
+    });
+
+    test('returns null for non-GitHub URLs', () => {
+        expect(parseGitHubPrUrl('https://gitlab.com/owner/repo/pull/123')).toBeNull();
+        expect(parseGitHubPrUrl('https://bitbucket.org/owner/repo/pull/123')).toBeNull();
+    });
+
+    test('returns null for GitHub URLs that are not PRs', () => {
+        expect(parseGitHubPrUrl('https://github.com/owner/repo')).toBeNull();
+        expect(parseGitHubPrUrl('https://github.com/owner/repo/issues/123')).toBeNull();
+        expect(parseGitHubPrUrl('https://github.com/owner/repo/commit/abc123')).toBeNull();
+    });
+
+    test('returns null for malformed PR URLs', () => {
+        expect(parseGitHubPrUrl('https://github.com/owner/pull/123')).toBeNull();
+        expect(parseGitHubPrUrl('https://github.com//repo/pull/123')).toBeNull();
+    });
+
+    test('returns null for null input', () => {
+        expect(parseGitHubPrUrl(null)).toBeNull();
+    });
+
+    test('returns null for undefined input', () => {
+        expect(parseGitHubPrUrl(undefined)).toBeNull();
+    });
+
+    test('returns null for empty string', () => {
+        expect(parseGitHubPrUrl('')).toBeNull();
+    });
+
+    test('normalizes HTTP to HTTPS and parses', () => {
+        expect(parseGitHubPrUrl('http://github.com/owner/repo/pull/123')).toEqual({
+            owner: 'owner',
+            repo: 'repo',
+            number: 123
+        });
     });
 });

@@ -5,7 +5,8 @@
 import { parseReviewFromOutput, parseErrorFromOutput } from '../src/parsing.js';
 import { findUnknownSchemaVersions } from '../src/schema.js';
 import { filterByRobocopDescription, filterBySupportedSchemaVersions, annotateBatchErrors } from '../src/batch.js';
-import { fetchBatches, fetchBatchOutput, fetchBatchError } from './api.js';
+import { parseGitHubPrUrl } from '../src/urls.js';
+import { fetchBatches, fetchBatchOutput, fetchBatchError, fetchPrStatus } from './api.js';
 import { renderBatches, renderDetailPanel } from './render.js';
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -30,6 +31,12 @@ window.onload = function() {
         loadBatches();
     } else {
         openSettingsModal();
+    }
+
+    // Load GitHub token
+    const savedGitHubToken = localStorage.getItem('github_token');
+    if (savedGitHubToken) {
+        document.getElementById('githubToken').value = savedGitHubToken;
     }
 
     // Load display cancelled jobs setting
@@ -94,6 +101,13 @@ window.saveSettings = function() {
         localStorage.setItem('openai_api_key', apiKey);
     }
 
+    const githubToken = document.getElementById('githubToken').value.trim();
+    if (githubToken) {
+        localStorage.setItem('github_token', githubToken);
+    } else {
+        localStorage.removeItem('github_token');
+    }
+
     showMessage('Settings saved', 'success');
     closeSettingsModal();
 
@@ -104,6 +118,10 @@ window.saveSettings = function() {
 
 function getApiKey() {
     return document.getElementById('apiKey').value.trim() || localStorage.getItem('openai_api_key');
+}
+
+function getGitHubToken() {
+    return document.getElementById('githubToken').value.trim() || localStorage.getItem('github_token') || null;
 }
 
 function getDisplayCancelledJobs() {
@@ -349,6 +367,61 @@ async function loadBatches() {
             });
 
         await Promise.all([...outputPromises, ...errorPromises]);
+
+        // Fetch PR statuses from GitHub
+        const githubToken = getGitHubToken();
+        const cachedPrStatus = readCache('robocop_pr_status_cache');
+        const now = Date.now();
+        const PR_CACHE_TTL_OPEN = 5 * 60 * 1000; // 5 minutes for open PRs
+        const PR_CACHE_TTL_CLOSED = 60 * 60 * 1000; // 1 hour for closed/merged PRs
+
+        // Group batches by PR cacheKey to avoid duplicate API calls
+        const prToBatches = new Map(); // cacheKey -> { parsed, batches: [] }
+        for (const batch of annotatedBatches) {
+            const prUrl = batch.metadata?.pull_request_url;
+            if (!prUrl) continue;
+
+            const parsed = parseGitHubPrUrl(prUrl);
+            if (!parsed) continue;
+
+            const cacheKey = `${parsed.owner}/${parsed.repo}/${parsed.number}`;
+            if (!prToBatches.has(cacheKey)) {
+                prToBatches.set(cacheKey, { parsed, batches: [] });
+            }
+            prToBatches.get(cacheKey).batches.push(batch);
+        }
+
+        // Fetch each unique PR once and apply to all matching batches
+        const prStatusPromises = Array.from(prToBatches.entries()).map(async ([cacheKey, { parsed, batches }]) => {
+            const cached = cachedPrStatus[cacheKey];
+
+            if (cached) {
+                const ttl = cached.state === 'open' ? PR_CACHE_TTL_OPEN : PR_CACHE_TTL_CLOSED;
+                if (now - cached.checkedAt < ttl) {
+                    const prStatus = cached.merged ? 'merged' : cached.state;
+                    for (const batch of batches) {
+                        batch.prStatus = prStatus;
+                    }
+                    return;
+                }
+            }
+
+            const status = await fetchPrStatus(parsed.owner, parsed.repo, parsed.number, githubToken);
+            if (status) {
+                const prStatus = status.merged ? 'merged' : status.state;
+                for (const batch of batches) {
+                    batch.prStatus = prStatus;
+                }
+                cachedPrStatus[cacheKey] = {
+                    state: status.state,
+                    merged: status.merged,
+                    checkedAt: now
+                };
+                writeCache('robocop_pr_status_cache', cachedPrStatus);
+            }
+        });
+
+        await Promise.all(prStatusPromises);
 
         // Store batches globally for panel access
         currentBatches = annotatedBatches;

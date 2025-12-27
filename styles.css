@@ -949,6 +949,13 @@ input[type="checkbox"]:checked::after {
     gap: 0.75rem;
 }
 
+.field-hint {
+    font-size: 0.65rem;
+    color: var(--text-dim);
+    text-transform: none;
+    letter-spacing: 0;
+}
+
 .modal-footer {
     display: flex;
     justify-content: flex-end;
@@ -1079,6 +1086,42 @@ body::after {
         transparent 2px
     );
     z-index: 1000;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   PR STATUS BADGES
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.pr-badge {
+    display: inline-block;
+    margin-left: 0.5rem;
+    padding: 0.15rem 0.4rem;
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    border-radius: 2px;
+    vertical-align: middle;
+}
+
+.pr-badge-open {
+    background: rgba(0, 255, 136, 0.15);
+    border: 1px solid var(--green);
+    color: var(--green);
+    text-shadow: 0 0 4px var(--green-glow);
+}
+
+.pr-badge-closed {
+    background: rgba(128, 128, 144, 0.1);
+    border: 1px solid var(--text-dim);
+    color: var(--text-secondary);
+}
+
+.pr-badge-merged {
+    background: rgba(255, 0, 170, 0.15);
+    border: 1px solid var(--magenta);
+    color: var(--magenta);
+    text-shadow: 0 0 4px var(--magenta-glow);
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════

@@ -80,6 +80,30 @@ export function getPrUrl(batch) {
 }
 
 /**
+ * Parse a GitHub PR URL into its components.
+ * Normalizes HTTP to HTTPS before parsing.
+ * @param {string|null|undefined} url - GitHub PR URL (e.g., "https://github.com/owner/repo/pull/123")
+ * @returns {{owner: string, repo: string, number: number}|null} Parsed components or null if not a valid GitHub PR URL
+ */
+export function parseGitHubPrUrl(url) {
+    if (!url) return null;
+
+    // Normalize the URL first (handles http -> https conversion)
+    const normalizedUrl = getSafeRepoUrl(url);
+    if (!normalizedUrl) return null;
+
+    const match = normalizedUrl.match(/^https:\/\/github\.com\/([^\/]+)\/([^\/]+)\/pull\/(\d+)/i);
+    if (!match) return null;
+
+    const [, owner, repo, numberStr] = match;
+    const number = parseInt(numberStr, 10);
+
+    if (!owner || !repo || isNaN(number)) return null;
+
+    return { owner, repo, number };
+}
+
+/**
  * Normalize an ID for use as a DOM element ID.
  * Uses base64 encoding with URL-safe characters.
  * @param {string} id - Original ID
