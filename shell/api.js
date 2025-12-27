@@ -121,7 +121,7 @@ export async function fetchPrStatus(owner, repo, number, token) {
         const data = await response.json();
         return {
             state: data.state,
-            merged: data.merged ?? false
+            merged: Boolean(data.merged_at)
         };
     } catch {
         return null;
