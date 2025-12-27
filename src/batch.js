@@ -8,7 +8,7 @@
  * @returns {boolean} True if batch is in progress
  */
 export function isInProgress(status) {
-    return ['in_progress', 'validating', 'finalizing'].includes(status);
+    return ['in_progress', 'validating', 'finalizing', 'cancelling'].includes(status);
 }
 
 /**
