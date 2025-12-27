@@ -156,17 +156,35 @@ export function renderRecent(batches, displayCancelled) {
         return;
     }
 
-    // Sort by finish time (most recent first), using status-appropriate timestamp
-    const getFinishTime = (batch) =>
-        batch.completed_at ?? batch.expired_at ?? batch.cancelled_at ?? batch.failed_at ?? batch.created_at;
+    // Get the finish timestamp for a batch based on its status.
+    // Returns null if the expected field is missing or not a finite number.
+    const getFinishTime = (batch) => {
+        let timestamp;
+        switch (batch.status) {
+            case 'completed': timestamp = batch.completed_at; break;
+            case 'expired': timestamp = batch.expired_at; break;
+            case 'cancelled': timestamp = batch.cancelled_at; break;
+            case 'failed': timestamp = batch.failed_at; break;
+            default: return null;
+        }
+        return typeof timestamp === 'number' && Number.isFinite(timestamp) ? timestamp : null;
+    };
 
-    recentBatches.sort((a, b) => getFinishTime(b) - getFinishTime(a));
+    // Sort by finish time (most recent first), batches with unknown time go to end
+    recentBatches.sort((a, b) => {
+        const aTime = getFinishTime(a);
+        const bTime = getFinishTime(b);
+        if (aTime === null && bTime === null) return 0;
+        if (aTime === null) return 1;
+        if (bTime === null) return -1;
+        return bTime - aTime;
+    });
 
     container.innerHTML = recentBatches.map(batch => {
         const branch = escapeHtml(batch.metadata?.branch || 'Unknown');
         const finishTime = getFinishTime(batch);
-        const time = getRelativeTime(finishTime, now);
-        const utcTime = formatUtcTime(finishTime);
+        const time = finishTime !== null ? getRelativeTime(finishTime, now) : '';
+        const utcTime = finishTime !== null ? formatUtcTime(finishTime) : '';
         const prUrl = getPrUrl(batch);
 
         let outcomeClass = 'clean';
