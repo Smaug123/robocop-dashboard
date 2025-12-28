@@ -16,6 +16,18 @@
           config.allowUnfree = true;
         };
       in {
+        packages.default = pkgs.stdenv.mkDerivation {
+          pname = "robocop-dashboard";
+          version = "0.1.0";
+          src = ./.;
+
+          installPhase = ''
+            mkdir -p $out
+            cp index.html styles.css $out/
+            cp -r src shell $out/
+          '';
+        };
+
         devShells.default = pkgs.mkShell {
           packages = [
             pkgs.claude-code
