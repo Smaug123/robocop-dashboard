@@ -21,6 +21,9 @@
           version = "0.1.0";
           src = ./.;
 
+          dontConfigure = true;
+          dontBuild = true;
+
           installPhase = ''
             mkdir -p $out
             cp index.html styles.css $out/

@@ -21,3 +21,6 @@ jobs:
 
       - name: Check Nix formatting
         run: nix develop --command alejandra --check .
+
+      - name: Nix build
+        run: nix build
