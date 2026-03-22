@@ -8,25 +8,24 @@
     nixpkgs,
     flake-utils,
     ...
-  }:
-    let
-      mkPackages = pkgs: {
-        default = pkgs.stdenv.mkDerivation {
-          pname = "robocop-dashboard";
-          version = "0.1.0";
-          src = ./.;
+  }: let
+    mkPackages = pkgs: {
+      default = pkgs.stdenv.mkDerivation {
+        pname = "robocop-dashboard";
+        version = "0.1.0";
+        src = ./.;
 
-          dontConfigure = true;
-          dontBuild = true;
+        dontConfigure = true;
+        dontBuild = true;
 
-          installPhase = ''
-            mkdir -p $out
-            cp index.html styles.css $out/
-            cp -r src shell $out/
-          '';
-        };
+        installPhase = ''
+          mkdir -p $out
+          cp index.html styles.css $out/
+          cp -r src shell $out/
+        '';
       };
-    in
+    };
+  in
     {
       lib.mkPackages = mkPackages;
     }
