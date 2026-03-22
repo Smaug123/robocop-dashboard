@@ -9,14 +9,9 @@
     flake-utils,
     ...
   }:
-    flake-utils.lib.eachDefaultSystem (
-      system: let
-        pkgs = import nixpkgs {
-          inherit system;
-          config.allowUnfree = true;
-        };
-      in {
-        packages.default = pkgs.stdenv.mkDerivation {
+    let
+      mkPackages = pkgs: {
+        default = pkgs.stdenv.mkDerivation {
           pname = "robocop-dashboard";
           version = "0.1.0";
           src = ./.;
@@ -30,6 +25,19 @@
             cp -r src shell $out/
           '';
         };
+      };
+    in
+    {
+      lib.mkPackages = mkPackages;
+    }
+    // flake-utils.lib.eachDefaultSystem (
+      system: let
+        pkgs = import nixpkgs {
+          inherit system;
+          config.allowUnfree = true;
+        };
+      in {
+        packages = mkPackages pkgs;
 
         devShells.default = pkgs.mkShell {
           packages = [
