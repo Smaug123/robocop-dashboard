@@ -8,28 +8,35 @@
     nixpkgs,
     flake-utils,
     ...
-  }:
-    flake-utils.lib.eachDefaultSystem (
+  }: let
+    mkPackages = pkgs: {
+      default = pkgs.stdenv.mkDerivation {
+        pname = "robocop-dashboard";
+        version = "0.1.0";
+        src = ./.;
+
+        dontConfigure = true;
+        dontBuild = true;
+
+        installPhase = ''
+          mkdir -p $out
+          cp index.html styles.css $out/
+          cp -r src shell $out/
+        '';
+      };
+    };
+  in
+    {
+      lib.mkPackages = mkPackages;
+    }
+    // flake-utils.lib.eachDefaultSystem (
       system: let
         pkgs = import nixpkgs {
           inherit system;
           config.allowUnfree = true;
         };
       in {
-        packages.default = pkgs.stdenv.mkDerivation {
-          pname = "robocop-dashboard";
-          version = "0.1.0";
-          src = ./.;
-
-          dontConfigure = true;
-          dontBuild = true;
-
-          installPhase = ''
-            mkdir -p $out
-            cp index.html styles.css $out/
-            cp -r src shell $out/
-          '';
-        };
+        packages = mkPackages pkgs;
 
         devShells.default = pkgs.mkShell {
           packages = [
