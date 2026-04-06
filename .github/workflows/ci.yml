@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [main]
 
+env:
+  CACHIX_CACHE: smaug123
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -16,6 +19,11 @@ jobs:
 
       - uses: DeterminateSystems/magic-nix-cache-action@main
 
+      - name: Use Cachix
+        uses: cachix/cachix-action@v15
+        with:
+          name: ${{ env.CACHIX_CACHE }}
+
       - name: Run tests
         run: nix develop --command bun test
 
@@ -24,3 +32,12 @@ jobs:
 
       - name: Nix build
         run: nix build
+
+  all-required-checks-complete:
+    if: ${{ always() }}
+    needs: [test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: G-Research/common-actions/check-required-lite@2b7dc49cb14f3344fbe6019c14a31165e258c059
+        with:
+          needs-context: ${{ toJSON(needs) }}
